@@ -80,4 +80,8 @@ jobs:
         env:
           TAGS: ${{ steps.image_tags.outputs.tags }}
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
-        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+        run: |
+          IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
+          for TAG in "${TAG_ARRAY[@]}"; do
+            cosign sign --yes "$TAG@$DIGEST"
+          done
