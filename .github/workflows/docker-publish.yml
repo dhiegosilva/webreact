@@ -1,15 +1,16 @@
-name: Docker
+name: Docker Publish
 
+# Triggers for the workflow
 on:
   push:
-    branches: [ "master" ]
-    tags: [ 'v*.*.*' ]
+    branches: [ "master" ]  # Trigger on push to master branch
+    tags: [ 'v*.*.*' ]       # Trigger on semantic version tags like v1.0.0
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master" ]   # Trigger on pull requests to master
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  REGISTRY: ghcr.io                      # GitHub Container Registry
+  IMAGE_NAME: ${{ github.repository }}    # Image name based on GitHub repo name
 
 jobs:
   build:
@@ -17,21 +18,25 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
+      id-token: write  # Needed for signing with cosign
 
     steps:
+      # Step 1: Checkout the repository code
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Step 2: Install cosign for signing images, skip on pull requests
       - name: Install cosign
         if: github.event_name != 'pull_request'
         uses: sigstore/cosign-installer@v2
         with:
           cosign-release: 'v2.2.4'
 
+      # Step 3: Set up Docker Buildx for multi-platform builds
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Step 4: Log in to GitHub Container Registry, skip on pull requests
       - name: Log into registry ${{ env.REGISTRY }}
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -40,26 +45,39 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Step 5: Extract Docker metadata for tags and labels
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
+      # Step 6: Determine Tags for Docker Image
+      - name: Set image tags
+        id: image_tags
+        run: |
+          TAGS="${{ steps.meta.outputs.tags }}"
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+          fi
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+
+      # Step 7: Build and push the Docker image
       - name: Build and push Docker image
         id: build-and-push
         uses: docker/build-push-action@v5
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.image_tags.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Step 8: Sign the Docker image, skip on pull requests
       - name: Sign the published Docker image
         if: ${{ github.event_name != 'pull_request' }}
         env:
-          TAGS: ${{ steps.meta.outputs.tags }}
+          TAGS: ${{ steps.image_tags.outputs.tags }}
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
         run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
