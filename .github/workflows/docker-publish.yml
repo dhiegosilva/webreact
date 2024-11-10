@@ -61,7 +61,7 @@ jobs:
         id: build-and-push
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: web-frontend
           file: web-frontend/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.image_tags.outputs.tags }}
