@@ -62,6 +62,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: web-frontend/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.image_tags.outputs.tags }}
           cache-from: type=gha
