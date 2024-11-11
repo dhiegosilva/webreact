@@ -46,23 +46,46 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Step 5: Set Docker image tags based on branch/tag
-      - name: Set image tags
+      - name: Set image tags frontend
         id: image_tags
         run: |
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
           elif [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
-            TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+            TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest"
           fi
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
 
       # Step 6: Build and push the Docker image (without caching intermediate layers)
-      - name: Build and push Docker image
+      - name: Build and push Docker image frontend
         id: build-and-push
         uses: docker/build-push-action@v5
         with:
           context: web-frontend
           file: web-frontend/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.image_tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      # Step 5: Set Docker image tags based on branch/tag
+      - name: Set image tags backend
+        id: image_tags2
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:latest"
+          fi
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+
+      # Step 6: Build and push the Docker image (without caching intermediate layers)
+      - name: Build and push Docker image backend
+        id: build-and-push2
+        uses: docker/build-push-action@v5
+        with:
+          context: web-backend
+          file: web-backend/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.image_tags.outputs.tags }}
           cache-from: type=gha
