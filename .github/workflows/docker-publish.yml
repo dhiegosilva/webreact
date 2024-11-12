@@ -1,5 +1,6 @@
-name: Build and Push Docker Images
+name: Docker Publish
 
+# Triggers for the workflow
 on:
   push:
     branches: [ "master" ]  # Trigger on push to master branch
@@ -9,42 +10,91 @@ on:
 
 env:
   REGISTRY: ghcr.io                      # GitHub Container Registry
-  IMAGE_NAME: ${{ github.repository }}    # Image name based on GitHub repo name
+  IMAGE_NAME: ${{ github.repository }}    # Base image name from GitHub repo
 
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-latest
-
-    env:
-      REGISTRY: ghcr.io  # GitHub Container Registry
-      IMAGE_BACKEND: ${{ secrets.GITHUB_REPOSITORY }}/web-backend
-      IMAGE_FRONTEND: ${{ secrets.GITHUB_REPOSITORY }}/web-frontend
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # Needed for signing with cosign
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      # Step 1: Checkout the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Log in to GitHub Container Registry
+      # Step 2: Install cosign for signing images, skip on pull requests
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v2
+        with:
+          cosign-release: 'v2.2.4'
+
+      # Step 3: Set up Docker Buildx for multi-platform builds
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Step 4: Log in to GitHub Container Registry, skip on pull requests
+      - name: Log into registry ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Step 5: Set Docker image tags based on branch/tag
+      - name: Set image tags
+        id: image_tags
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            FRONTEND_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-web-frontend:${{ github.ref_name }}"
+            BACKEND_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-web-backend:${{ github.ref_name }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            FRONTEND_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-web-frontend:latest"
+            BACKEND_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-web-backend:latest"
+          fi
+          echo "frontend_tag=$FRONTEND_TAG" >> $GITHUB_OUTPUT
+          echo "backend_tag=$BACKEND_TAG" >> $GITHUB_OUTPUT
+
+      # Step 6: Build and push web-frontend Docker image
+      - name: Build and push web-frontend Docker image
+        id: build-and-push-frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: web-frontend
+          file: web-frontend/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.image_tags.outputs.frontend_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Step 7: Build and push web-backend Docker image
+      - name: Build and push web-backend Docker image
+        id: build-and-push-backend
+        uses: docker/build-push-action@v5
+        with:
+          context: web-backend
+          file: web-backend/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.image_tags.outputs.backend_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Optional Step: Prune unused Docker images/layers to avoid pushing intermediates
+      - name: Prune Docker images
+        run: docker image prune -f
+
+      # Step 8: Sign the published Docker images, skip on pull requests
+      - name: Sign the published Docker images
+        if: ${{ github.event_name != 'pull_request' }}
         env:
-          USERNAME: ${{ secrets.GH_USERNAME }}
-          TOKEN: ${{ secrets.GH_TOKEN }}
+          FRONTEND_TAG: ${{ steps.image_tags.outputs.frontend_tag }}
+          BACKEND_TAG: ${{ steps.image_tags.outputs.backend_tag }}
+          FRONTEND_DIGEST: ${{ steps.build-and-push-frontend.outputs.digest }}
+          BACKEND_DIGEST: ${{ steps.build-and-push-backend.outputs.digest }}
         run: |
-          echo "${TOKEN}" | docker login ${{ env.REGISTRY }} --username "${USERNAME}" --password-stdin
-
-      # Build and Push web-backend Docker Image
-      - name: Build web-backend Docker image
-        run: |
-          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_BACKEND }}:latest -f ./web-backend/Dockerfile ./web-backend
-
-      - name: Push web-backend Docker image
-        run: |
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_BACKEND }}:latest
-
-      # Build and Push web-frontend Docker Image
-      - name: Build web-frontend Docker image
-        run: |
-          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_FRONTEND }}:latest -f ./web-frontend/Dockerfile ./web-frontend
-
-      - name: Push web-frontend Docker image
-        run: |
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_FRONTEND }}:latest
+          cosign sign --yes "${FRONTEND_TAG}@${FRONTEND_DIGEST}"
+          cosign sign --yes "${BACKEND_TAG}@${BACKEND_DIGEST}"
