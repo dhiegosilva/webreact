@@ -25,7 +25,11 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Log in to GitHub Container Registry
-        run: echo "${{ secrets.GH_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ secrets.GH_USERNAME }} --password-stdin
+        env:
+          USERNAME: ${{ secrets.GH_USERNAME }}
+          TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "${TOKEN}" | docker login ${{ env.REGISTRY }} --username "${USERNAME}" --password-stdin
 
       # Build and Push web-backend Docker Image
       - name: Build web-backend Docker image
