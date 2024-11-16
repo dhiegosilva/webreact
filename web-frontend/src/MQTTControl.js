@@ -27,7 +27,6 @@ function MQTTControl() {
   };
 
   useEffect(() => {
-    // Load states from localStorage on initial render
     const savedSwitches = JSON.parse(localStorage.getItem('switches'));
     const savedConnected = JSON.parse(localStorage.getItem('connected'));
 
@@ -41,12 +40,10 @@ function MQTTControl() {
   }, []);
 
   useEffect(() => {
-    // Save switches state to localStorage whenever it changes
     localStorage.setItem('switches', JSON.stringify(switches));
   }, [switches]);
 
   useEffect(() => {
-    // Save connected state to localStorage whenever it changes
     localStorage.setItem('connected', JSON.stringify(connected));
   }, [connected]);
 
@@ -59,7 +56,6 @@ function MQTTControl() {
       setMqttClient(client);
       console.log('Reconnected to MQTT broker at', brokerUrl);
 
-      // Subscribe to switch state topics
       Object.values(topics).forEach((topic) => {
         client.subscribe(topic, (err) => {
           if (err) {
@@ -68,6 +64,11 @@ function MQTTControl() {
             console.log(`Subscribed to ${topic}`);
           }
         });
+      });
+
+      Object.entries(commandTopics).forEach(([switchName, commandTopic]) => {
+        client.publish(commandTopic, '');
+        console.log(`Requested state for ${switchName} via ${commandTopic}`);
       });
     });
 
@@ -102,7 +103,6 @@ function MQTTControl() {
       setMqttClient(client);
       console.log('Connected to MQTT broker at', brokerUrl);
 
-      // Subscribe to switch state topics
       Object.values(topics).forEach((topic) => {
         client.subscribe(topic, (err) => {
           if (err) {
@@ -111,6 +111,11 @@ function MQTTControl() {
             console.log(`Subscribed to ${topic}`);
           }
         });
+      });
+
+      Object.entries(commandTopics).forEach(([switchName, commandTopic]) => {
+        client.publish(commandTopic, '');
+        console.log(`Requested state for ${switchName} via ${commandTopic}`);
       });
     });
 
